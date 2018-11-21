@@ -351,14 +351,14 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                     if (!Enum.TryParse<HttpTransportType>(transport.Transport, out var transportType))
                     {
                         Log.TransportNotSupported(_logger, transport.Transport);
-                        transportExceptions.Add(new NotSupportedException($"{transport.Transport} is not supported by the client."));
+                        transportExceptions.Add(new TransportFailedException(transport.Transport, "The transport is not supported by the client."));
                         continue;
                     }
 
                     if (transportType == HttpTransportType.WebSockets && !IsWebSocketsSupported())
                     {
                         Log.WebSocketsNotSupportedByOperatingSystem(_logger);
-                        transportExceptions.Add(new PlatformNotSupportedException("WebSockets is not supported on this operating system."));
+                        transportExceptions.Add(new TransportFailedException("WebSockets", "The transport is not supported on this operating system."));
                         continue;
                     }
 
@@ -367,12 +367,12 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                         if ((transportType & _httpConnectionOptions.Transports) == 0)
                         {
                             Log.TransportDisabledByClient(_logger, transportType);
-                            transportExceptions.Add(new NotSupportedException($"{transportType} is disabled by the client."));
+                            transportExceptions.Add(new TransportFailedException(transportType.ToString(), "The transport is disabled by the client."));
                         }
                         else if (!transport.TransferFormats.Contains(transferFormatString, StringComparer.Ordinal))
                         {
                             Log.TransportDoesNotSupportTransferFormat(_logger, transportType, transferFormat);
-                            transportExceptions.Add(new NotSupportedException($"{transportType} does not support '{transferFormat}' format."));
+                            transportExceptions.Add(new TransportFailedException(transportType.ToString(), $"The transport does not support the '{transferFormat}' transfer format."));
                         }
                         else
                         {
@@ -392,7 +392,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                     {
                         Log.TransportFailed(_logger, transportType, ex);
 
-                        transportExceptions.Add(new Exception($"{transportType} failed: {ex.Message}"));
+                        transportExceptions.Add(new TransportFailedException(transportType.ToString(), ex.Message, ex));
 
                         // Try the next transport
                         // Clear the negotiation response so we know to re-negotiate.

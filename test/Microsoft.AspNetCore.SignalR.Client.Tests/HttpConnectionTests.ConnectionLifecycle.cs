@@ -156,7 +156,7 @@ namespace Microsoft.AspNetCore.SignalR.Client.Tests
                         {
                             var ex = await Assert.ThrowsAsync<AggregateException>(() => connection.StartAsync(TransferFormat.Text));
                             Assert.Equal("Unable to connect to the server with any of the available transports. " +
-                                "(WebSockets failed: Transport failed to start) (ServerSentEvents failed: Transport failed to start) (LongPolling failed: Transport failed to start)",
+                                "(WebSockets transport failed. Transport failed to start) (ServerSentEvents transport failed. Transport failed to start) (LongPolling transport failed. Transport failed to start)",
                                 ex.Message);
 
                             // If websockets aren't supported then we expect one less attmept to start.
