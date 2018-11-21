@@ -351,14 +351,14 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                     if (!Enum.TryParse<HttpTransportType>(transport.Transport, out var transportType))
                     {
                         Log.TransportNotSupported(_logger, transport.Transport);
-                        transportExceptions.Add(new Exception($"{transport.Transport} is not supported by the client."));
+                        transportExceptions.Add(new NotSupportedException($"{transport.Transport} is not supported by the client."));
                         continue;
                     }
 
                     if (transportType == HttpTransportType.WebSockets && !IsWebSocketsSupported())
                     {
                         Log.WebSocketsNotSupportedByOperatingSystem(_logger);
-                        transportExceptions.Add(new Exception("WebSockets is not supported on this operating system."));
+                        transportExceptions.Add(new PlatformNotSupportedException("WebSockets is not supported on this operating system."));
                         continue;
                     }
 
@@ -367,12 +367,12 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                         if ((transportType & _httpConnectionOptions.Transports) == 0)
                         {
                             Log.TransportDisabledByClient(_logger, transportType);
-                            transportExceptions.Add(new Exception($"{transportType} is disabled by the client."));
+                            transportExceptions.Add(new NotSupportedException($"{transportType} is disabled by the client."));
                         }
                         else if (!transport.TransferFormats.Contains(transferFormatString, StringComparer.Ordinal))
                         {
                             Log.TransportDoesNotSupportTransferFormat(_logger, transportType, transferFormat);
-                            transportExceptions.Add(new Exception($"{transportType} does not support '{transferFormat}' format."));
+                            transportExceptions.Add(new NotSupportedException($"{transportType} does not support '{transferFormat}' format."));
                         }
                         else
                         {

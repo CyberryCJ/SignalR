@@ -40,7 +40,7 @@ namespace Microsoft.AspNetCore.SignalR.Client.Tests
             public Task ConnectionCannotBeStartedIfNoCommonTransportsBetweenClientAndServer()
             {
                 return RunInvalidNegotiateResponseTest<AggregateException>(ResponseUtils.CreateNegotiationContent(transportTypes: HttpTransportType.ServerSentEvents),
-                    $"Unable to connect to the server with any of the available transports. (ServerSentEvents is disabled by the client.)");
+                    "Unable to connect to the server with any of the available transports. (ServerSentEvents is disabled by the client.)");
             }
 
             [Fact]
