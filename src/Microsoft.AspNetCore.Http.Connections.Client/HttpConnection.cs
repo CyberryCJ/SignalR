@@ -294,7 +294,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
             // Set the initial access token provider back to the original one from options
             _accessTokenProvider = _httpConnectionOptions.AccessTokenProvider;
 
-            List<Exception> transportExceptions = new List<Exception>();
+            var transportExceptions = new List<Exception>();
 
             if (_httpConnectionOptions.SkipNegotiation)
             {
@@ -406,7 +406,9 @@ namespace Microsoft.AspNetCore.Http.Connections.Client
                 if (transportExceptions.Count > 0)
                 {
                     throw new AggregateException("Unable to connect to the server with any of the available transports.", transportExceptions);
-                } else {
+                }
+                else
+                {
                     throw new InvalidOperationException("No transports are supported by the server.");
                 }
             }
