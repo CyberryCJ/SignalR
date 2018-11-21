@@ -1,11 +1,9 @@
-import { UploadStream } from "./UploadStream";
-
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 import { HandshakeProtocol, HandshakeRequestMessage, HandshakeResponseMessage } from "./HandshakeProtocol";
 import { IConnection } from "./IConnection";
-import { CancelInvocationMessage, CompletionMessage, IHubProtocol, InvocationMessage, MessageType, StreamDataMessage, StreamInvocationMessage, StreamItemMessage } from "./IHubProtocol";
+import { CancelInvocationMessage, CompletionMessage, IHubProtocol, InvocationMessage, MessageType, StreamCompleteMessage, StreamDataMessage, StreamInvocationMessage, StreamItemMessage } from "./IHubProtocol";
 import { ILogger, LogLevel } from "./ILogger";
 import { IStreamResult } from "./Stream";
 import { Arg, Subject } from "./Utils";
@@ -30,7 +28,7 @@ export class HubConnection {
     private handshakeProtocol: HandshakeProtocol;
     private callbacks: { [invocationId: string]: (invocationEvent: StreamItemMessage | CompletionMessage | null, error?: Error) => void };
     private methods: { [name: string]: Array<(...args: any[]) => void> };
-    private id: number;
+    private invocationId: number;
     private streamId: number;
     private closedCallbacks: Array<(error?: Error) => void>;
     private receivedHandshakeResponse: boolean;
@@ -86,7 +84,7 @@ export class HubConnection {
         this.callbacks = {};
         this.methods = {};
         this.closedCallbacks = [];
-        this.id = 0;
+        this.invocationId = 0;
         this.streamId = 0;
         this.receivedHandshakeResponse = false;
         this.connectionState = HubConnectionState.Disconnected;
@@ -126,7 +124,7 @@ export class HubConnection {
 
         this.logger.log(LogLevel.Information, `Using HubProtocol '${this.protocol.name}'.`);
 
-        // defensively cleanup timeout in case we receive a message export from the server before we finish start
+        // defensively cleanup timeout in case we receive a message from the server before we finish start
         this.cleanupTimeout();
         this.resetTimeoutPeriod();
         this.resetKeepAliveInterval();
@@ -202,7 +200,7 @@ export class HubConnection {
      * Sends a js object to the server.
      * @param message The js object to serialize and send.
      */
-    public sendWithProtocol(message: any) {
+    private sendWithProtocol(message: any) {
         return this.sendMessage(this.protocol.writeMessage(message));
     }
 
@@ -216,16 +214,17 @@ export class HubConnection {
      * @returns {Promise<void>} A Promise that resolves when the invocation has been successfully sent, or rejects with an error.
      */
     public send(methodName: string, ...args: any[]): Promise<void> {
-        return this.sendWithProtocol(this.createInvocation(methodName, args, true));
+        const streams = this.replaceStreamingParams(args);
+        const sendPromise =  this.sendWithProtocol(this.createInvocation(methodName, args, true));
+
+        this.launchStreams(streams);
+
+        return sendPromise;
     }
 
-    public nextStreamId(): string {
+    private nextStreamId(): string {
         this.streamId += 1;
         return this.streamId.toString();
-    }
-
-    public newUploadStream(): UploadStream {
-        return new UploadStream(this);
     }
 
     /** Invokes a hub method on the server using the specified name and arguments.
@@ -240,10 +239,11 @@ export class HubConnection {
      * @returns {Promise<T>} A Promise that resolves with the result of the server method (if any), or rejects with an error.
      */
     public invoke<T = any>(methodName: string, ...args: any[]): Promise<T> {
+        const streams = this.replaceStreamingParams(args);
         const invocationDescriptor = this.createInvocation(methodName, args, false);
 
         const p = new Promise<any>((resolve, reject) => {
-            // invocationId will always have a value for a non-blocking inexport vocation
+            // invocationId will always have a value for a non-blocking invocation
             this.callbacks[invocationDescriptor.invocationId!] = (invocationEvent: StreamItemMessage | CompletionMessage | null, error?: Error) => {
                 if (error) {
                     reject(error);
@@ -268,6 +268,8 @@ export class HubConnection {
                     // invocationId will always have a value for a non-blocking invocation
                     delete this.callbacks[invocationDescriptor.invocationId!];
                 });
+
+            this.launchStreams(streams);
         });
 
         return p;
@@ -520,25 +522,67 @@ export class HubConnection {
                 type: MessageType.Invocation,
             };
         } else {
-            const id = this.id;
-            this.id++;
+            const invocationId = this.invocationId;
+            this.invocationId++;
 
             return {
                 arguments: args,
-                invocationId: id.toString(),
+                invocationId: invocationId.toString(),
                 target: methodName,
                 type: MessageType.Invocation,
             };
         }
     }
 
+    private launchStreams(streams: Array<IStreamResult<any>>): void {
+        if (streams.length === 0) {
+            return;
+        }
+
+        // We want to iterate over the keys, since the keys are the stream ids
+        // tslint:disable-next-line:forin
+        for (const streamId in streams) {
+            streams[streamId].subscribe({
+                complete: async () => {
+                    await this.sendWithProtocol(this.createStreamCompleteMessage(streamId));
+                },
+                error: async (err) => {
+                    await this.sendWithProtocol(this.createStreamCompleteMessage(streamId, err));
+                },
+                next: async (item) => {
+                    await this.sendWithProtocol(this.createStreamDataMessage(streamId, item));
+                },
+            });
+        }
+    }
+
+    private replaceStreamingParams(args: any[]): Array<IStreamResult<any>> {
+        const streams: Array<IStreamResult<any>> = [];
+        for (let i = 0; i < args.length; i++) {
+            const argument = args[i];
+            if (this.isObservable(argument)) {
+                const streamId = this.nextStreamId();
+                // Store the stream for later use
+                streams[streamId] = argument;
+                // Replace the stream with a placeholder
+                args[i] = { streamId };
+            }
+        }
+
+        return streams;
+    }
+
+    private isObservable(arg: any): arg is IStreamResult<any> {
+        return arg.subscribe && typeof arg.subscribe === "function";
+    }
+
     private createStreamInvocation(methodName: string, args: any[]): StreamInvocationMessage {
-        const id = this.id;
-        this.id++;
+        const invocationId = this.invocationId;
+        this.invocationId++;
 
         return {
             arguments: args,
-            invocationId: id.toString(),
+            invocationId: invocationId.toString(),
             target: methodName,
             type: MessageType.StreamInvocation,
         };
@@ -551,11 +595,26 @@ export class HubConnection {
         };
     }
 
-    public createStreamDataMessage(id: string, item: any): StreamDataMessage {
+    private createStreamDataMessage(id: string, item: any): StreamDataMessage {
         return {
             item,
             streamId: id,
             type: MessageType.StreamData,
+        };
+    }
+
+    private createStreamCompleteMessage(id: string, error?: string): StreamCompleteMessage {
+        if (error) {
+            return {
+                error,
+                streamId: id,
+                type: MessageType.StreamComplete,
+            };
+        }
+
+        return {
+            streamId: id,
+            type: MessageType.StreamComplete,
         };
     }
 }
