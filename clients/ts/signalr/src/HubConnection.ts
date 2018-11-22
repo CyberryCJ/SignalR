@@ -154,6 +154,7 @@ export class HubConnection {
      * @returns {IStreamResult<T>} An object that yields results from the server as they are received.
      */
     public stream<T = any>(methodName: string, ...args: any[]): IStreamResult<T> {
+        const streams = this.replaceStreamingParams(args);
         const invocationDescriptor = this.createStreamInvocation(methodName, args);
 
         const subject = new Subject<T>(() => {
@@ -187,6 +188,8 @@ export class HubConnection {
                 subject.error(e);
                 delete this.callbacks[invocationDescriptor.invocationId];
             });
+
+        this.launchStreams(streams);
 
         return subject;
     }
